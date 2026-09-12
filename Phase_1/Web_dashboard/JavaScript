@@ -1,1 +1,56 @@
+const btnForward = document.getElementById("btn-forward");
+const btnBackward = document.getElementById("btn-backward");
+const btnLeft = document.getElementById("btn-left");
+const btnRight = document.getElementById("btn-right");
+const btnStop = document.getElementById("btn-stop");
 
+let timer = null;
+let ws = null;
+
+function WSconnect() {
+    ws = new WebSocket(`ws://${location.hostname}:81`);
+    ws.onopen = () => console.log("WS Connect");
+    ws.onclose = () => {
+        console.log("WS disconnected, retrying...");
+        setTimeout(WSconnect, 1000);
+    };
+    ws.onerror = (err) => console.error("WS error: ", err);
+}
+WSconnect();
+
+
+function sendcmd(cmd) {
+    if(ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(cmd);
+    }
+}
+
+function startSending(cmd) {
+  if(timer != null) clearInterval(timer);
+  sendcmd(cmd);
+  timer = setInterval(() => {sendcmd(cmd);}, 100);
+}
+
+function stopSending() {
+  clearInterval(timer);
+  timer = null;
+  sendcmd("S");
+}
+
+function init_Button(button, command) {
+  button.addEventListener("pointerdown", () => {
+    startSending(command);
+  });
+  button.addEventListener("pointerup", stopSending);
+  button.addEventListener("pointerleave", stopSending);
+  button.addEventListener("pointercancel", stopSending);
+}
+
+init_Button(btnForward, "F");
+init_Button(btnBackward, "B");
+init_Button(btnLeft, "L");
+init_Button(btnRight, "R");
+
+btnStop.addEventListener("click", () => {
+  stopSending();
+})
