@@ -3,8 +3,8 @@
 #include <WebSocketsServer.h>
 #include <LittleFS.h>
 
-const char* ssid = "P2005";
-const char* password = "1133557799";
+const char* ssid = "";
+const char* password = "";
 
 WebServer server(80);
 WebSocketsServer webSocket(81);
