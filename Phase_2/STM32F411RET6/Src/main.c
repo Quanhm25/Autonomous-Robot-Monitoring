@@ -8,6 +8,8 @@
 #include "motor.h"
 #include "uart_esp32.h"
 
+#define SENSOR_SEND_INTERVAL_MS 1000
+
 // =======================================================================
 // CẤU HÌNH CLOCK (84 MHz)
 // =======================================================================
@@ -50,6 +52,13 @@ static void Formatdisplay(float val, char *out) {
 	sprintf(out, "%d.%d", whole, frac);
 }
 
+static void FormatforMQ2(float val, char *out) {
+    int whole = (int)val;
+    float frac_f = val - whole;
+    if (frac_f < 0) frac_f = -frac_f;
+    int frac = (int)(frac_f * 1000);
+    sprintf(out, "%d.%03d", whole, frac);
+}
 
 int main(void) {
     SystemClock_Config();
@@ -58,6 +67,7 @@ int main(void) {
     I2C1_Init();
     SSD1306_Init();
     MQ2_Init();
+    MQ2_R0 = 20.0f;
     DHT_GPIO_Init();
     DHT_TIM_Init();
     BH1750_Init();
@@ -70,10 +80,9 @@ int main(void) {
     Motor_Init();
     Motor_Stop();
 
-    float temperature = 0, humidity = 0, lux = 0;
-    uint16_t smokeRaw = 0;
+    float temperature = 0, humidity = 0, lux = 0, smokePPM = 0.0f;
 
-    uint32_t lastdhtTrigger = 0, lastLuxRead = 0, lastDisplayUpdate = 0;
+    uint32_t lastdhtTrigger = 0, lastLuxRead = 0, lastDisplayUpdate = 0, lastSensorSend = 0;
 
     while(1) {
     	DHT_CheckTimeout();
@@ -93,18 +102,17 @@ int main(void) {
     		BH1750_ReadLux(&lux);
     	}
 
-    	smokeRaw = MQ2_Read();
     	if(msTicks - lastDisplayUpdate >= 500) {
     		lastDisplayUpdate = msTicks;
+
+    		smokePPM = MQ2_GetSmokePPM();
 
     		char line[22], numbuf[10];
     		SSD1306_Clear();
 
-    	    SSD1306_SetCursor(0, 0);
-    	    SSD1306_WriteString("Robot Car - Phase 2");
+    	    SSD1306_WriteStringCentered("Robot Car - Phase 2", 0);
+    	    SSD1306_WriteStringCentered("Hoang Minh Quan", 8);
 
-    	    SSD1306_SetCursor(0, 8);
-    	    SSD1306_WriteString("Hoang Minh Quan");
 
     		Formatdisplay(temperature, numbuf);
     		SSD1306_SetCursor(2, 18);
@@ -121,11 +129,22 @@ int main(void) {
     		SSD1306_WriteString(line);
 
     		SSD1306_SetCursor(1, 48);
-    		snprintf(line, sizeof(line), "Khoi: %u raw ", smokeRaw);
+    		if(smokePPM < 0) {
+    			snprintf(line, sizeof(line), "Khoi: chua hieu chinh");
+    		} else {
+    			FormatforMQ2(smokePPM, numbuf);
+    			snprintf(line, sizeof(line), "Khoi: %s ppm", numbuf);
+    		}
     		SSD1306_WriteString(line);
 
     		SSD1306_UpdateScreen();
 
+    	}
+
+    	if(msTicks - lastSensorSend >= SENSOR_SEND_INTERVAL_MS) {
+    		lastSensorSend = msTicks;
+    		SensorData_t data = { temperature, humidity, smokePPM, lux };
+    		UART_ESP32_SendSensorData(&data);
     	}
 
     	if(msTicks - lastCommandTime > 200) {
@@ -151,3 +170,58 @@ int main(void) {
     	}
     }
 }
+
+
+
+//int main(void) {
+//    SystemClock_Config();
+//
+//    I2C1_Init();
+//    SSD1306_Init();
+//    MQ2_Init();
+//
+//    MQ2_R0 = 20.0f;   // giữ nguyên giá trị đang dùng để tái hiện đúng bug
+//
+//    char line[22], numbuf[12];
+//    uint32_t lastUpdate = 0;
+//
+//    while(1) {
+//        if (msTicks - lastUpdate >= 500) {
+//            lastUpdate = msTicks;
+//
+//            uint16_t raw   = MQ2_Read();
+//            float vout     = MQ2_ReadAverageVout(20);
+//            float rs       = MQ2_CalcRs(vout);
+//            float ratio    = rs / MQ2_R0;
+//            float ppm      = MQ2_GetSmokePPM();
+//
+//            SSD1306_Clear();
+//
+//            SSD1306_SetCursor(0, 0);
+//            snprintf(line, sizeof(line), "raw: %u", raw);
+//            SSD1306_WriteString(line);
+//
+//            FormatFloat3(vout, numbuf);
+//            SSD1306_SetCursor(0, 10);
+//            snprintf(line, sizeof(line), "vout: %s V", numbuf);
+//            SSD1306_WriteString(line);
+//
+//            FormatFloat3(rs, numbuf);
+//            SSD1306_SetCursor(0, 20);
+//            snprintf(line, sizeof(line), "rs: %s k", numbuf);
+//            SSD1306_WriteString(line);
+//
+//            FormatFloat3(ratio, numbuf);
+//            SSD1306_SetCursor(0, 30);
+//            snprintf(line, sizeof(line), "ratio: %s", numbuf);
+//            SSD1306_WriteString(line);
+//
+//            FormatFloat3(ppm, numbuf);
+//            SSD1306_SetCursor(0, 40);
+//            snprintf(line, sizeof(line), "ppm: %s", numbuf);
+//            SSD1306_WriteString(line);
+//
+//            SSD1306_UpdateScreen();
+//        }
+//    }
+//}
