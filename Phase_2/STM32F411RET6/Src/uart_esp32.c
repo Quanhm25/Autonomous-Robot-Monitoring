@@ -60,3 +60,35 @@ void UART_ESP32_Init(void) {
     USART2->CR1 = USART_CR1_RE | USART_CR1_TE | USART_CR1_RXNEIE | USART_CR1_UE;
     NVIC_EnableIRQ(USART2_IRQn);
 }
+
+static void USART2_SendByte(uint8_t byte) {
+	while(!(USART2->SR & USART_SR_TXE));
+	USART2->DR = byte;
+}
+
+static uint8_t CRC8_Calc(const uint8_t *data, uint8_t len) {
+	uint8_t crc = 0x00;
+	for(uint8_t i = 0; i < len; i++) {
+		crc ^= data[i];
+		for(uint8_t b = 0; b < 8; b++) {
+			crc = (crc & 0x80) ? (crc<<1) ^ 0x07 : (crc<<1);
+		}
+	}
+	return crc;
+}
+
+void UART_ESP32_SendSensorData(const SensorData_t *data) {
+	SensorDataFrame_t frame;
+	frame.start = 0xAA;
+	frame.temperature = data->temperature;
+	frame.humidity = data->humidity;
+	frame.smoke_ppm = data->smoke_ppm;
+	frame.light_lux = data->light_lux;
+	frame.crc = CRC8_Calc((uint8_t*)&frame.temperature, 16);
+	frame.end = 0x55;
+
+	uint8_t *bytes = (uint8_t*)&frame;
+	for(uint8_t i = 0; i < sizeof(frame); i++) {
+		USART2_SendByte(bytes[i]);
+	}
+}
