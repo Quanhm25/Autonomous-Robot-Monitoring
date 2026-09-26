@@ -24,7 +24,8 @@ void I2C1_Init(void) {
 	GPIOB->AFR[0] &= ~((0xF<<24) | (0xF<<28));  // GPIO 0-7 nằm trên AFR[0], mà mỗi pin Alternate Function có 4 bit. Ta có 0xF = 1111, vậy nên dòng này có thể hiểu là dòng xóa cấu hình AF của PB6 và PB7
 	GPIOB->AFR[0] |= ((0x4<<24) | (0x4<<28)); // Theo datasheet, 0x4 là AF4 mà STM32F411RET6 ánh xạ I2C1 vào AF4. Sau khi code dòng này, PB6 trở thành I2C1_SCL và PB7 trở thành I2C1_SDA
 
-	I2C1->CR1 &= ~I2C_CR1_PE; // Control Register của I2C1 thực hiện tắt I2C1 trước khi cấu hình (~Peripheral Enable)
+	I2C1->CR1 |= I2C_CR1_SWRST; // Control Register của I2C1 thực hiện tắt I2C1 trước khi cấu hình (~Peripheral Enable)
+	I2C1->CR1 &= ~I2C_CR1_SWRST;
 	I2C1->CR2 = 42; // Cấu hình Control Register 2, dòng này liên quan đến tần số clock APB1 (CR2.FREQ)
 	I2C1->CCR = 210; // CCR = Clock Control Register, dòng này sử dụng để thiết lập thời gian của SCL. (Đang để ở mức 100kHz)
 	I2C1->TRISE = 43; // TRISE = FREQ(MHz) + 1
@@ -59,21 +60,26 @@ static void I2C1_Stop(void) {
 }
 
 uint8_t I2C1_WriteBytes(uint8_t addr, uint8_t *data, uint8_t len) { // addr: địa chỉ slave; *data: con trỏ đến dữ liệu cần gửi; len: số byte cần gửi
-	I2C1->CR1 |= I2C_CR1_START; // I2C1 set bit START, tức STM32 phát điều kiện
-	if(!I2C1_WaitFlag((volatile uint32_t*)&I2C1->SR1, I2C_SR1_SB)) return 0; // Sau khi START được tạo, hardware set SB (START BIT) = 1; sau dòng này thì code được phép gửi địa chỉ, nếu timeout sẽ trả về return 0
+    if(!I2C1_Start(addr, 0)) {
+    	I2C1_Stop();
+    	return 0;
+    }
 
-	I2C1->DR = (addr << 1); // Gửi địa chỉ slave, đây là 0x27 + Write
-	if(!I2C1_WaitFlag((volatile uint32_t*)&I2C1->SR1, I2C_SR1_ADDR)) return 0; // Chờ ADDR, ADDR được set khi slave đã nhận địa chỉ và phản hồi ACK
-	(void)I2C1->SR2;
+    for(uint16_t i = 0; i < len; i++) {
+    	if(!I2C1_WaitFlag(&I2C1->SR1, I2C_SR1_TXE)) {
+    		I2C1_Stop();
+    		return 0;
+    	}
+    	I2C1->DR = data[i];
+    }
 
-	for(uint8_t i = 0; i < len; i++) {
-		if(!I2C1_WaitFlag((volatile uint32_t*)&I2C1->SR1, I2C_SR1_TXE)) return 0;
-		I2C1->DR = data[i];
-	}
+    if(!I2C1_WaitFlag(&I2C1->SR1, I2C_SR1_BTF)) {
+    	I2C1_Stop();
+    	return 0;
+    }
 
-	if(!I2C1_WaitFlag((volatile uint32_t*)&I2C1->SR1, I2C_SR1_BTF)) return 0;
-	I2C1->CR1 |= I2C_CR1_STOP;
-	return 1;
+    I2C1_Stop();
+    return 1;
 }
 
 uint8_t I2C1_WriteReg(uint8_t addr, uint8_t reg, uint8_t data) {
