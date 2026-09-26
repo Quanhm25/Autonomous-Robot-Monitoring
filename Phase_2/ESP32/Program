@@ -1,0 +1,133 @@
+#include <WiFi.h>
+#include <WebServer.h>
+#include <WebSocketsServer.h>
+#include <LittleFS.h>
+
+const char* ssid = "";
+const char* password = "";
+
+WebServer server(80);
+WebSocketsServer webSocket(81);
+
+
+// Khai báo chân cho UART2 (để giao tiếp với STM32)
+#define RXD2 4
+#define TXD2 5
+
+//Biến toàn cục lưu data do sensor gửi về
+float g_temp = 0, g_hum = 0;
+int g_ppm = 0;
+
+void handleFileRequest(String path) {
+  if(path == "/") path = "/index.html";
+  String contentType = "text/plain";
+  if(path.endsWith(".html")) contentType = "text/html";
+  else if(path.endsWith(".css")) contentType = "text/css";
+  else if(path.endsWith(".js")) contentType = "application/javascript";
+
+  if(LittleFS.exists(path)) {
+    File file = LittleFS.open(path, "r");
+    server.streamFile(file, contentType);
+    file.close();
+  } else {
+    server.send(404, "text/plain", "File not found");
+  }
+}
+
+void sendMotorCmd(char cmd) {
+  Serial2.write(cmd);
+}
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length) {
+  switch(type) {
+    case WStype_DISCONNECTED:
+    Serial.printf("[WS %u] Disconnected, STOP\n", num);
+    sendMotorCmd('S');
+    break;
+
+    case WStype_CONNECTED:
+    Serial.printf("[WS %u] Connected\n", num);
+    break;
+
+    case WStype_TEXT: {
+      if(length != 1) return;
+      char cmd = (char)payload[0];
+      if(cmd == 'F' || cmd == 'B' || cmd == 'L' || cmd == 'R' || cmd == 'S') {
+        sendMotorCmd(cmd);
+      }
+      break;
+    }
+
+    default:
+    break;
+  }
+}
+
+bool Dulieusensor(const String& line, float &t, float &h, int &ppm) {
+  int thermal_Idx = line.indexOf("T:");
+  int humid_Idx = line.indexOf("H:");
+  int ppm_Idx = line.indexOf("P:");
+  if(thermal_Idx < 0 || humid_Idx < 0 || ppm_Idx < 0) return false;
+
+  t = line.substring(thermal_Idx + 2, line.indexOf(',', thermal_Idx)).toFloat();
+  h = line.substring(humid_Idx + 2, line.indexOf(',', humid_Idx)).toFloat();
+  ppm = line.substring(ppm_Idx + 2).toInt();
+  return true;
+}
+
+void setup() {
+  Serial.begin(115200);
+ 
+  // Khởi tạo Serial2 để giao tiếp với STM32
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
+
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while(WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+  Serial.print("ESP32 IP: ");
+  Serial.println(WiFi.localIP());
+
+  if(!LittleFS.begin()) {
+    Serial.println("LittleFS Mount Failed");
+    return;
+  }
+
+  server.on("/", HTTP_GET, []() {handleFileRequest("/index.html");});
+  server.on("/styles.css", HTTP_GET, []() {handleFileRequest("/styles.css");});
+  server.on("/script.js", HTTP_GET, []() {handleFileRequest("/script.js");});
+  server.begin();
+ 
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
+
+  Serial.println("HTTP + WebSocket server started");
+}
+
+void loop() {
+  server.handleClient();
+  webSocket.loop();
+ 
+  if(Serial2.available()) {
+    String response = Serial2.readStringUntil('\n');
+    response.trim();
+    if(response.length() > 0) {
+      Serial.print("Received from STM32: ");
+      Serial.println(response);
+
+      float t, h;
+      int ppm;
+
+      if(Dulieusensor(response, t, h, ppm)) {
+        g_temp = t; g_hum = h; g_ppm = ppm;
+        String json = "{\"thermal\":" + String(g_temp, 1) +
+                      ",\"humidity\":" + String(g_hum, 1) +
+                      ",\"smoke\":" + String(g_ppm) + "}";
+        webSocket.broadcastTXT(json);
+      }
+    }
+  }
+}
