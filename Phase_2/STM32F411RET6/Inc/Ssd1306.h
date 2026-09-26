@@ -14,5 +14,6 @@ void SSD1306_DrawPixel(uint8_t x, uint8_t y, uint8_t color);
 void SSD1306_SetCursor(uint8_t x, uint8_t y);
 void SSD1306_WriteChar(char ch);
 void SSD1306_WriteString(const char *str);
+void SSD1306_WriteStringCentered(const char *str, uint8_t y);
 
 #endif
