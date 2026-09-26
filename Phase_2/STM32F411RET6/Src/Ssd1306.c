@@ -94,3 +94,9 @@ void SSD1306_WriteChar(char ch) {
 void SSD1306_WriteString(const char *str) {
     while (*str) SSD1306_WriteChar(*str++);
 }
+void SSD1306_WriteStringCentered(const char *str, uint8_t y) {
+	uint8_t width = strlen(str) * 6;
+	uint8_t x = (width < 128) ? (128 - width) / 2 : 0;
+	SSD1306_SetCursor(x, y);
+	SSD1306_WriteString(str);
+}
