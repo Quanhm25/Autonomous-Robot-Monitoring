@@ -1,7 +1,10 @@
 #include "stm32f4xx.h"
+#include "stdio.h"
 #include "sensor/bh1750.h"
 #include "sensor/dht22.h"
 #include "sensor/mq2.h"
+#include "i2c1.h"
+#include "ssd1306.h"
 #include "motor.h"
 #include "uart_esp32.h"
 
@@ -40,20 +43,91 @@ static void SystemClock_Config(void) {
     SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_ENABLE_Msk;
 }
 
+static void Formatdisplay(float val, char *out) {
+	int whole = (int)val;
+	int frac = (int)((val - whole)*10);
+	if(frac < 0) frac = - frac;
+	sprintf(out, "%d.%d", whole, frac);
+}
+
+
 int main(void) {
     SystemClock_Config();
 
+    // Peripheral
+    I2C1_Init();
+    SSD1306_Init();
     MQ2_Init();
     DHT_GPIO_Init();
     DHT_TIM_Init();
     BH1750_Init();
 
+
+    // ESP32
     UART_ESP32_Init();
 
+    // Actuator
     Motor_Init();
     Motor_Stop();
 
+    float temperature = 0, humidity = 0, lux = 0;
+    uint16_t smokeRaw = 0;
+
+    uint32_t lastdhtTrigger = 0, lastLuxRead = 0, lastDisplayUpdate = 0;
+
     while(1) {
+    	DHT_CheckTimeout();
+
+    	if(msTicks - lastdhtTrigger >= 2500) {
+    		lastdhtTrigger = msTicks;
+    		DHT_StartRead();
+    	}
+    	float t, h;
+    	if(DHT_Process(&t, &h)) {
+    		temperature = t;
+    		humidity = h;
+    	}
+
+    	if(msTicks - lastLuxRead >= 500) {
+    		lastLuxRead = msTicks;
+    		BH1750_ReadLux(&lux);
+    	}
+
+    	smokeRaw = MQ2_Read();
+    	if(msTicks - lastDisplayUpdate >= 500) {
+    		lastDisplayUpdate = msTicks;
+
+    		char line[22], numbuf[10];
+    		SSD1306_Clear();
+
+    	    SSD1306_SetCursor(0, 0);
+    	    SSD1306_WriteString("Robot Car - Phase 2");
+
+    	    SSD1306_SetCursor(0, 8);
+    	    SSD1306_WriteString("Hoang Minh Quan");
+
+    		Formatdisplay(temperature, numbuf);
+    		SSD1306_SetCursor(2, 18);
+    		snprintf(line, sizeof(line), "Nhiet do: %s C", numbuf);
+    		SSD1306_WriteString(line);
+
+    		Formatdisplay(humidity, numbuf);
+    		SSD1306_SetCursor(2, 28);
+    		snprintf(line, sizeof(line), "Do am: %s%%", numbuf);
+    		SSD1306_WriteString(line);
+
+    		SSD1306_SetCursor(2, 38);
+    		snprintf(line, sizeof(line), "Anh sang: %d lux", (int)lux);
+    		SSD1306_WriteString(line);
+
+    		SSD1306_SetCursor(1, 48);
+    		snprintf(line, sizeof(line), "Khoi: %u raw ", smokeRaw);
+    		SSD1306_WriteString(line);
+
+    		SSD1306_UpdateScreen();
+
+    	}
+
     	if(msTicks - lastCommandTime > 200) {
     		robotState = ROBOT_STOP;
     	}
