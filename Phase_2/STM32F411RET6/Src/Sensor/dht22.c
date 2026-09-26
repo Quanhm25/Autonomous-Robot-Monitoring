@@ -16,6 +16,7 @@ typedef enum
 static volatile DHTState_t dhtState = DHT_IDLE;
 static volatile uint8_t dhtData[5];
 static volatile uint8_t dhtBitIdx = 0;
+static volatile uint8_t dhtReadStartCapture = 0;
 static volatile uint32_t dhtRiseTime = 0;
 static volatile uint32_t dhtFallTime = 0;
 
@@ -74,6 +75,17 @@ void DHT_TIM_Init(void) {
 	NVIC_EnableIRQ(TIM3_IRQn);
 }
 
+void DHT_CheckTimeout(void) {
+	if(dhtState == DHT_READ_DATA) {
+		uint16_t elapsed = (uint16_t)(TIM3->CNT - dhtReadStartCapture);
+		if(elapsed > 10000) {
+			TIM3->DIER &= ~TIM_DIER_CC1IE;
+			TIM3->CCER &= ~TIM_CCER_CC1E;
+			dhtState = DHT_IDLE;
+		}
+	}
+}
+
 static void DHT_Delay(uint16_t us) {
 	uint16_t start = TIM3->CNT;
 	while ((uint16_t)(TIM3->CNT - start) < us);
@@ -127,6 +139,7 @@ uint8_t DHT_StartRead(void) {
 	}
 
 	dhtState = DHT_READ_DATA;
+	dhtReadStartCapture = TIM3->CNT;
 	TIM3->SR = ~TIM_SR_CC1IF;
 	TIM3->CCER |= TIM_CCER_CC1E;
 	TIM3->DIER |= TIM_DIER_CC1IE;
