@@ -9,10 +9,10 @@ void SysTick_Handler(void) {
 }
 
 //Xử lý giao thức UART với EPS32
-void USART2_IRQHandler(void) {
+void USART1_IRQHandler(void) {
     // Kiểm tra cờ RXNE (Receive Not Empty) để biết có dữ liệu đến
-    if (USART2->SR & USART_SR_RXNE) {
-        uint8_t data = USART2->DR; //Data Read
+    if (USART1->SR & USART_SR_RXNE) {
+        uint8_t data = USART1->DR; //Data Read
 
         switch(data)
         {
@@ -40,30 +40,30 @@ void USART2_IRQHandler(void) {
     }
 }
 
-// UART_ESP32_Init (USART2 Init) (ESP32 UART - PA2: TX, PA3: RX)
+// UART_ESP32_Init (USART2 Init) (ESP32 UART - PA9: TX, PA10: RX)
 void UART_ESP32_Init(void) {
     RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN;
-    RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
+    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
 
     //PA2 = TX, PA3 = RX; Alternate Function
-    GPIOA->MODER &= ~((3 << 4) | (3 << 6));
-    GPIOA->MODER |=  ((2 << 4) | (2 << 6));
+    GPIOA->MODER &= ~((3 << 18) | (3 << 20));
+    GPIOA->MODER |=  ((2 << 18) | (2 << 20));
 
     //Alternate Function 7
-    GPIOA->AFR[0] &= ~((0xF << 8) | (0xF << 12));
-    GPIOA->AFR[0] |=  ((0x7 << 8) | (0x7 << 12));
+    GPIOA->AFR[1] &= ~((0xF << 4) | (0xF << 8));
+    GPIOA->AFR[1] |=  ((0x7 << 4) | (0x7 << 8));
 
     // Baudrate 115200 @ 84MHz (Oversampling = 16)
-    USART2->BRR = 0x16D;
+    USART1->BRR = 0x2D9;
 
     // Kích hoạt UART, TX, RX và Ngắt nhận dữ liệu
-    USART2->CR1 = USART_CR1_RE | USART_CR1_TE | USART_CR1_RXNEIE | USART_CR1_UE;
-    NVIC_EnableIRQ(USART2_IRQn);
+    USART1->CR1 = USART_CR1_RE | USART_CR1_TE | USART_CR1_RXNEIE | USART_CR1_UE;
+    NVIC_EnableIRQ(USART1_IRQn);
 }
 
-static void USART2_SendByte(uint8_t byte) {
-	while(!(USART2->SR & USART_SR_TXE));
-	USART2->DR = byte;
+static void USART1_SendByte(uint8_t byte) {
+	while(!(USART1->SR & USART_SR_TXE));
+	USART1->DR = byte;
 }
 
 static uint8_t CRC8_Calc(const uint8_t *data, uint8_t len) {
@@ -89,6 +89,7 @@ void UART_ESP32_SendSensorData(const SensorData_t *data) {
 
 	uint8_t *bytes = (uint8_t*)&frame;
 	for(uint8_t i = 0; i < sizeof(frame); i++) {
-		USART2_SendByte(bytes[i]);
+		USART1_SendByte(bytes[i]);
 	}
 }
+
