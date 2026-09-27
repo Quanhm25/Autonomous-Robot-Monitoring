@@ -3,8 +3,8 @@
 #include <WebSocketsServer.h>
 #include <LittleFS.h>
 
-const char* ssid = "";
-const char* password = "";
+const char* ssid = "P2005";
+const char* password = "135797531";
 
 WebServer server(80);
 WebSocketsServer webSocket(81);
@@ -14,9 +14,24 @@ WebSocketsServer webSocket(81);
 #define RXD2 4
 #define TXD2 5
 
+#pragma pack(push,1)
+typedef struct {
+  uint8_t start;
+  float temperature;
+  float humidity;
+  float smoke_ppm;
+  float light_lux;
+  uint8_t crc;
+  uint8_t end;
+} SensorDataFrame_t;
+#pragma pack(pop)
+
 //Biến toàn cục lưu data do sensor gửi về
-float g_temp = 0, g_hum = 0;
-int g_ppm = 0;
+float g_temp = 0, g_hum = 0, g_lux = 0, g_ppm = 0;
+uint8_t frameBuf[sizeof(SensorDataFrame_t)];
+uint8_t frameIdx = 0;
+bool syncing = true;
+
 
 void handleFileRequest(String path) {
   if(path == "/") path = "/index.html";
@@ -63,23 +78,50 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t length)
   }
 }
 
-bool Dulieusensor(const String& line, float &t, float &h, int &ppm) {
-  int thermal_Idx = line.indexOf("T:");
-  int humid_Idx = line.indexOf("H:");
-  int ppm_Idx = line.indexOf("P:");
-  if(thermal_Idx < 0 || humid_Idx < 0 || ppm_Idx < 0) return false;
+uint8_t CRC8_Calc(const uint8_t *data, uint8_t len) {
+  uint8_t crc = 0;
+  for(uint8_t i = 0; i < len; i++) {
+    crc ^= data[i];
+    for(uint8_t b = 0; b < 8; b++) {
+      crc = (crc&0x80) ? (crc<<1) ^ 0x07 : (crc<<1);
+    }
+  }
+  return crc;
+}
 
-  t = line.substring(thermal_Idx + 2, line.indexOf(',', thermal_Idx)).toFloat();
-  h = line.substring(humid_Idx + 2, line.indexOf(',', humid_Idx)).toFloat();
-  ppm = line.substring(ppm_Idx + 2).toInt();
-  return true;
+void pollSensorUART() {
+  while(Serial2.available()) {
+    uint8_t b = Serial2.read();
+    Serial.printf("%02X ", b);
+    if(syncing) {
+      if(b == 0xAA) {frameBuf[0] = b; frameIdx = 1; syncing = false;}
+      continue;
+    }
+    frameBuf[frameIdx++] = b;
+    if(frameIdx == sizeof(SensorDataFrame_t)) {
+      SensorDataFrame_t *f = (SensorDataFrame_t*)frameBuf;
+      uint8_t crc = CRC8_Calc((uint8_t*)&f->temperature, 16);
+      if(f->end == 0x55 && crc == f->crc) {
+        g_temp = f->temperature; g_hum = f->humidity;
+        g_ppm = f->smoke_ppm; g_lux = f->light_lux;
+        Serial.printf("T=%.1fC  H=%.1f%%  Smoke=%.3fppm  Lux=%.1flx\n", g_temp, g_hum, g_ppm, g_lux);
+        
+        String json = "{\"thermal\":" + String(g_temp,1) +
+                      ",\"humidity\":" + String(g_hum,1) +
+                      ",\"smoke\":" + String(g_ppm, 3) +
+                      ",\"light\":" + String(g_lux,1) + "}";
+        webSocket.broadcastTXT(json);
+      }
+      syncing = true;
+    }
+  }
 }
 
 void setup() {
   Serial.begin(115200);
  
   // Khởi tạo Serial2 để giao tiếp với STM32
-  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  Serial2.begin(115200, SERIAL_8N1, RXD2, TXD2);
 
   WiFi.begin(ssid, password);
   Serial.print("Connecting to WiFi");
@@ -110,24 +152,5 @@ void setup() {
 void loop() {
   server.handleClient();
   webSocket.loop();
- 
-  if(Serial2.available()) {
-    String response = Serial2.readStringUntil('\n');
-    response.trim();
-    if(response.length() > 0) {
-      Serial.print("Received from STM32: ");
-      Serial.println(response);
-
-      float t, h;
-      int ppm;
-
-      if(Dulieusensor(response, t, h, ppm)) {
-        g_temp = t; g_hum = h; g_ppm = ppm;
-        String json = "{\"thermal\":" + String(g_temp, 1) +
-                      ",\"humidity\":" + String(g_hum, 1) +
-                      ",\"smoke\":" + String(g_ppm) + "}";
-        webSocket.broadcastTXT(json);
-      }
-    }
-  }
+  pollSensorUART();
 }
