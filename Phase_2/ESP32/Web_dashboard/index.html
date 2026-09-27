@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8">
+    <title>Autonomous Robot Monitoring</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <h1>Robot Controller System - Phase 2</h1>
+    <h2 class="thuoctinhtacgia">Hoàng Minh Quân</h2>
+    
+    <div class="dashboard">
+      
+      <div class="controller">
+        <h3 class="cochupaneltitle panel-title">KHU VỰC ĐIỀU KHIỂN</h3>
+
+        <!-- Khu vực nút điều hướng -->
+        <button id="btn-forward" class="directional_btn arrow">&#8593</button>
+        <div class="middle_row">
+          <button id="btn-left" class="directional_btn arrow">&#8592</button>
+          <button id="btn-stop" class="stop_btn">Stop</button>
+          <button id="btn-right" class="directional_btn arrow">&#8594</button>
+        </div>
+        <button id="btn-backward" class="directional_btn arrow">&#8595</button>
+
+      </div>
+
+      <div class="sensor-panel">
+        <h3 class="cochupaneltitle panel-title">THÔNG SỐ CẢM BIẾN</h3>
+        <div class="sensor-row">
+          <span class="sensor_label">Nhiệt độ: </span>
+          <span id="val-thermal" class="sensor_value">-- °C</span>
+        </div>
+        <div class="sensor-row">
+          <span class="sensor_label">Độ ẩm: </span>
+          <span id="val-humidity" class="sensor_value">-- %</span>
+        </div>
+        <div class="sensor-row">
+          <span class="sensor_label">Mức khói: </span>
+          <span id="val-smoke" class="sensor_value">-- ppm</span>
+        </div>
+        <div class="sensor-row">
+          <span class="sensor_label">Ánh sáng: </span>
+          <span id="val-light" class="sensor_value">-- lux</span>
+        </div>
+        
+      </div>
+
+    </div>
+
+    <script src="script.js"></script>
+
+  </body>
+</html>
